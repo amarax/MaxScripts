@@ -42,7 +42,7 @@
 			lv.View = (dotNetClass "System.Windows.Forms.View").Details
 			lv.fullRowSelect = true
 			layout_def = #("Name", "Camera", "Scene State", "Resolution", "Range")
-			columWidth_def = #(150,50,100,80,70)
+			columWidth_def = #(300,100,150,80,70)
 			for i = 1 to layout_def.count do
 			(
 				lv.Columns.add layout_def[i] columWidth_def[i] --add column with name
@@ -94,8 +94,8 @@
 		label nameConventionHints "%scenestate - Scene state name\n%camera - Camera name" align:#left height:28
 
 		dotNetControl batchRenderList_lv "System.Windows.Forms.ListView" height:250 align:#center CheckBoxes:true offset:[0,10]
-		button deleteBatchRenderView_button "Delete" width:150 across:2
-		button clearBatchRenderList_button "Clear List" width:150 
+		button selectAllRenderList_button "Select All" width:150 across:2
+		button deleteBatchRenderView_button "Delete" width:150
 		
 		group "Batch Render Settings"	
 		(
@@ -110,16 +110,18 @@
 			spinner endFrame_spn "End Frame" range:[-8192,8192,rendEnd] width:90 type:#integer align:#left enabled:false offset:[-230,0]
 		)
 
-		edittext fileLocation_edittext "Render Output Location" text:(maxFilePath + "RENDERS\\") width:380 across:4 offset:[0,10]
-		button fileLocation_browse "..." width:30 pos:[400,fileLocation_edittext.pos.y]
-		dropdownlist outputFileType_drp items:#(".png",".jpg") width:50 align:#left pos:[440,fileLocation_edittext.pos.y]
+		edittext fileLocation_edittext "Render Output Location" text:(maxFilePath + "RENDERS\\") width:520 across:4 offset:[0,10]
+		button fileLocation_browse "..." width:30 pos:[540,fileLocation_edittext.pos.y]
+		dropdownlist outputFileType_drp items:#(".png",".jpg") width:50 align:#left pos:[580,fileLocation_edittext.pos.y]
 		
 		button startBatchRenderList_button "Start Batch Render" width:150 height:150 align:#right offset:[0,10]
 		
-		multilistbox additionalFileLocations_mlb "Additional Output Locations" width:480 height:5 offset:[0,-130]
-		edittext newAdditionalFileLocation_edittext "New Output Location" text:(maxFilePath + "RENDERS\\") width:380
-		button browseAdditionalFileLocation_btn "..." width:30 pos:[400,newAdditionalFileLocation_edittext.pos.y]
-		button addAdditionalFileLocation_btn "+" width:30 pos:[440,newAdditionalFileLocation_edittext.pos.y] tooltip:"Add new output location"
+		multilistbox additionalFileLocations_mlb "Additional Locations for Copies" width:480 height:5 offset:[0,-130]
+		button removeAdditionalFileLocation_btn "-" width:20 offset:[110,-75]
+		
+		edittext newAdditionalFileLocation_edittext "New Additional Location" text:(maxFilePath + "RENDERS\\") width:520 offset:[0,50]
+		button browseAdditionalFileLocation_btn "..." width:30 pos:[540,newAdditionalFileLocation_edittext.pos.y]
+		button addAdditionalFileLocation_btn "+" width:20 pos:[580,newAdditionalFileLocation_edittext.pos.y] tooltip:"Add new output location"
 		
 		on batchrenderwizard_rollout open do
 		(
@@ -128,6 +130,7 @@
 			(
 				append sceneStateNames (scenestatemgr.GetSceneState s)
 			)
+			sort sceneStateNames
 			sceneStateList_mlb.items = sceneStateNames
 
 			cameraNames = #()
@@ -136,9 +139,9 @@
 				if (not (isKindOf c Targetobject)) then
 				(
 					append cameraNames c.name
-					append cameraList c
 				)
 			)
+			sort cameraNames
 			cameraList_mlb.items = cameraNames
 			
 			initListView batchRenderList_lv
@@ -151,14 +154,15 @@
 			(
 				for s in sceneStateList_mlb.selection do
 				(
-					batchRenderMgr.CreateView cameraList[c]
+					renderViewCamera = getNodeByName cameraList_mlb.items[c]
+					batchRenderMgr.CreateView renderViewCamera
 					
 					renderView = batchRenderMgr.GetView batchRenderMgr.numViews
 					renderView.sceneStateName = sceneStateList_mlb.items[s]
 					
 					renderViewName = nameConvention_edittext.text
 					renderViewName = substituteString renderViewName "%scenestate" sceneStateList_mlb.items[s]
-					renderViewName = substituteString renderViewName "%camera" cameraList[c].name
+					renderViewName = substituteString renderViewName "%camera" renderViewCamera.name
 					
 					print (batchRenderMgr.findView renderViewName )
 					if(batchRenderMgr.findView renderViewName <=0) then
@@ -183,28 +187,54 @@
 			refreshListView batchRenderList_lv
 		)
 		
-		on clearBatchRenderList_button pressed do
+		on selectAllRenderList_button pressed do
 		(
-			while batchRenderMgr.numViews > 0 do
+			for i = 0 to batchRenderList_lv.Items.count - 1 do
 			(
-				batchRenderMgr.deleteView 1
+				batchRenderList_lv.Items.Item[i].selected = true
 			)
-			batchRenderList_lv.clear()
-			initListView batchRenderList_lv
-			refreshListView batchRenderList_lv
+			setFocus batchRenderList_lv
 		)
 		
 		on startBatchRenderList_button pressed do
 		(
 			batchRenderMgr.Render()
 			
+			-- Copy to destination folders
+			copyCommand = "copy "
+			
 			-- Highlight the first file that gets rendered
 			firstEnabledViewIndex = -1
+			outputFiles = #()
 			for v = 1 to batchRenderMgr.numViews do
 			(
 				renderView = batchRenderMgr.getView v
-				if( renderView.enabled and firstEnabledViewIndex == -1) then
-					firstEnabledViewIndex = v
+				if( renderView.enabled ) then
+				(
+					if( firstEnabledViewIndex == -1) then
+						firstEnabledViewIndex = v
+				
+					-- Make sure all files exist first
+					if doesFileExist renderView.outputFilename == true then
+					(
+						append outputFiles ("\"" + renderView.outputFilename + "\"")
+					)
+					else
+					(
+						
+					)
+				)
+			)
+			
+			for i in additionalFileLocations_mlb.items do
+			(
+				destination = " \"" + i + "\""
+				-- Make sure i is a valid folder destination
+				for f in outputFiles do
+				(
+					print (copyCommand + f + destination)
+					DOSCommand (copyCommand + f + destination)
+				)
 			)
 			
 			if( firstEnabledViewIndex > -1 ) then
@@ -243,8 +273,29 @@
 			tempList = #()
 			if( additionalFileLocations_mlb.items.count > 0 ) then
 				tempList = copy additionalFileLocations_mlb.items #noMap
-			appendIfUnique tempList newAdditionalFileLocation_edittext.text
+			appendIfUnique tempList (newAdditionalFileLocation_edittext.text)
 			additionalFileLocations_mlb.items = tempList
+		)
+
+		on removeAdditionalFileLocation_btn pressed do
+		(
+			itemsToRemove = #()
+			for s in additionalFileLocations_mlb.selection do
+			(
+				append itemsToRemove additionalFileLocations_mlb.items[s]
+			)
+			print itemsToRemove
+			
+			itemList = copy additionalFileLocations_mlb.items #noMap
+			for i in itemsToRemove do
+			(
+				itemIndex = findItem itemList i
+				if( itemIndex != 0 ) then		-- should never happen!
+					deleteItem itemList itemIndex
+				else
+					print "Unable to remove item: " + i
+			)
+			additionalFileLocations_mlb.items = itemList
 		)
 		
 		on batchRenderList_lv ColumnClick e do (
@@ -399,7 +450,10 @@
 			batchRenderRenameError_label.text = ""
 			if (batchRenderMgr.FindView newText == 0) then
 			(
-				(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)).name = newText
+				renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+				renderView.name = newText
+				renderView.outputFilename = substituteString renderView.outputFilename (getFilenameFile renderView.outputFilename) renderView.name
+				
 				updateSelectedItemDisplays batchrenderwizard_rollout
 			)
 			else if( batchRenderMgr.FindView newText != (batchRenderList_lv.SelectedItems.Item[0].index + 1) ) then
