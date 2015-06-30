@@ -29,7 +29,7 @@
 				sub_li = li.SubItems.add (renderViewRes)
 				sub_li = li.SubItems.add (renderViewRange)
 
-				li.checked = renderView.enabled 
+				li.checked = renderView.enabled
 				
 				append theRange li--we add the list item to the array
 			)
@@ -63,6 +63,9 @@
 				if( mainRollout.batchRenderList_lv.SelectedItems.count == 1 )then
 					listItem.text = renderView.name
 
+				listItem.subItems.Item[1].text = renderView.camera.name
+				listItem.subItems.Item[2].text = renderView.sceneStateName
+				
 				renderViewRes = "Default"
 				renderViewRange = "Default"
 				if( renderView.overridePreset ) then
@@ -84,23 +87,42 @@
 			
 			mainRollout.batchRenderList_lv.RedrawItems redrawIndexStart redrawIndexEnd false
 		)
+		
+		fn updateEnabledViews mainRollout =
+		(
+			enabledViews = 0
+			for v = 1 to batchRenderMgr.numViews do
+			(
+				renderView = batchRenderMgr.getView v
+				if renderView.enabled then
+					enabledViews += 1
+			)
+			mainRollout.startBatchRenderList_button.caption = "Start Batch Render (" + enabledViews as string + ")"
+		)
 
 		multilistbox sceneStateList_mlb "Scene State List" width:200 height:10 across:2 align:#left
 		multilistbox cameraList_mlb "Camera List" width:200 height:10 align:#left
 		
-		edittext nameConvention_edittext "Naming Convention" text:"%scenestate %camera" width:400 across:2 offset:[0,10]
-		button generatePermutations_button "Add Permutations" width:150 offset:[-100,10]
+		edittext nameConvention_edittext "Naming Convention" text:"%scenestate %camera" width:400 across:3 offset:[0,10]
+		edittext nextRunningNumber_edittext "Running Number" text:"001" width:130 offset:[150,10]
+		button generatePermutations_button "Add Permutations" width:150 offset:[0,10]
 		
-		label nameConventionHints "%scenestate - Scene state name\n%camera - Camera name" align:#left height:28
+		label nameConventionHints "%scenestate - Scene state name\n%camera - Camera name\n%# - Running number" align:#left height:42
 
 		dotNetControl batchRenderList_lv "System.Windows.Forms.ListView" height:250 align:#center CheckBoxes:true offset:[0,10]
-		button selectAllRenderList_button "Select All" width:150 across:2
+		checkbox applySelectedRenderView_chk "Apply selected scene state and camera to current viewport" checked:true
+
+		button selectAllRenderList_button "Select All" width:150 across:3
+		button duplicateBatchRenderView_button "Duplicate" width:150
 		button deleteBatchRenderView_button "Delete" width:150
 		
 		group "Batch Render Settings"	
 		(
 			edittext batchRenderName_edittext "Batch Render Name" enabled:false across:2
 			label batchRenderRenameError_label "" align:#left offset:[5,0]
+			
+			dropdownlist camera_drp "Camera" width:200 align:#left across:2 
+			dropdownlist scenestate_drp "SceneState" width:200 align:#left offset:[-150,0]
 
 			checkbox overridePresets_chk "Override Presets"  enabled:false
 			spinner width_spn "Width" range:[1,8192,renderWidth] width:70 type:#integer align:#left across:2 enabled:false
@@ -110,18 +132,18 @@
 			spinner endFrame_spn "End Frame" range:[-8192,8192,rendEnd] width:90 type:#integer align:#left enabled:false offset:[-230,0]
 		)
 
-		edittext fileLocation_edittext "Render Output Location" text:(maxFilePath + "RENDERS\\") width:520 across:4 offset:[0,10]
+		edittext fileLocation_edittext "Render Output Location" text:(maxFilePath + "RENDERS\\") width:520 across:4 offset:[0,0]
 		button fileLocation_browse "..." width:30 pos:[540,fileLocation_edittext.pos.y]
 		dropdownlist outputFileType_drp items:#(".png",".jpg") width:50 align:#left pos:[580,fileLocation_edittext.pos.y]
+
+		button startBatchRenderList_button "Start Batch Render" width:150 height:150 align:#right
 		
-		button startBatchRenderList_button "Start Batch Render" width:150 height:150 align:#right offset:[0,10]
-		
-		multilistbox additionalFileLocations_mlb "Additional Locations for Copies" width:480 height:5 offset:[0,-130]
-		button removeAdditionalFileLocation_btn "-" width:20 offset:[110,-75]
-		
-		edittext newAdditionalFileLocation_edittext "New Additional Location" text:(maxFilePath + "RENDERS\\") width:520 offset:[0,50]
+		edittext newAdditionalFileLocation_edittext "New Additional Location" width:520 offset:[0,-120]
 		button browseAdditionalFileLocation_btn "..." width:30 pos:[540,newAdditionalFileLocation_edittext.pos.y]
 		button addAdditionalFileLocation_btn "+" width:20 pos:[580,newAdditionalFileLocation_edittext.pos.y] tooltip:"Add new output location"
+
+		multilistbox additionalFileLocations_mlb "Additional Locations for Copies" width:480 height:5 offset:[0,-5]
+		button removeAdditionalFileLocation_btn "-" width:20 offset:[110,-75]
 		
 		on batchrenderwizard_rollout open do
 		(
@@ -132,6 +154,9 @@
 			)
 			sort sceneStateNames
 			sceneStateList_mlb.items = sceneStateNames
+			sceneStateDropdown = #("")
+			join sceneStateDropdown sceneStateNames
+			scenestate_drp.items = sceneStateDropdown
 
 			cameraNames = #()
 			for c in cameras do
@@ -143,9 +168,30 @@
 			)
 			sort cameraNames
 			cameraList_mlb.items = cameraNames
+			cameraDropdown = #("")
+			join cameraDropdown cameraNames
+			camera_drp.items = cameraDropdown
 			
 			initListView batchRenderList_lv
 			refreshListView batchRenderList_lv
+			
+			if batchRenderMgr.numViews >= 1 then
+			(
+				fileLocation_edittext.text = getFilenamePath (batchRenderMgr.getView 1).outputFilename
+				
+			)
+			
+			renderViewNamingConventionIndex = fileProperties.findProperty #custom "RenderViewNamingConvention"
+			if renderViewNamingConventionIndex == 0 then
+			(
+				fileProperties.addProperty #custom "RenderViewNamingConvention" "%scenestate %camera"
+				renderViewNamingConventionIndex = fileProperties.findProperty #custom "RenderViewNamingConvention"
+			)
+
+			renderNamingConvention = fileProperties.getPropertyValue #custom renderViewNamingConventionIndex
+			nameConvention_edittext.text = renderNamingConvention
+
+			updateEnabledViews batchrenderwizard_rollout
 		)
 		
 		on generatePermutations_button pressed do
@@ -163,6 +209,27 @@
 					renderViewName = nameConvention_edittext.text
 					renderViewName = substituteString renderViewName "%scenestate" sceneStateList_mlb.items[s]
 					renderViewName = substituteString renderViewName "%camera" renderViewCamera.name
+
+					if( findString renderViewName "%#" != undefined ) then
+					(
+						trimmedString = trimLeft (trimRight nextRunningNumber_edittext.text)
+						
+						-- TODO Validate string first
+						
+						renderViewName = substituteString renderViewName "%#" trimmedString
+
+						expectedLength = trimmedString.count
+						currentRunningNumber = trimmedString as integer
+						currentRunningNumber += 1
+						nextRunningNumber = currentRunningNumber as string
+						
+						while nextRunningNumber.count < expectedLength do
+						(
+							nextRunningNumber = "0" + nextRunningNumber
+						)
+						
+						nextRunningNumber_edittext.text = nextRunningNumber
+					)
 					
 					print (batchRenderMgr.findView renderViewName )
 					if(batchRenderMgr.findView renderViewName <=0) then
@@ -172,9 +239,20 @@
 					
 					renderView.outputFilename = fileLocation_edittext.text + "\\" + renderView.name + outputFileType_drp.selected 
 				)
-				
 			)
 			refreshListView batchRenderList_lv
+			updateEnabledViews batchrenderwizard_rollout
+		)
+		
+		on duplicateBatchRenderView_button pressed do
+		(
+			for s = 1 to batchRenderList_lv.SelectedItems.count do
+			(
+				batchRenderMgr.DuplicateView (batchRenderMgr.findView batchRenderList_lv.SelectedItems.item[s-1].text)
+			)
+			
+			refreshListView batchRenderList_lv
+			updateEnabledViews batchrenderwizard_rollout
 		)
 		
 		on deleteBatchRenderView_button pressed do
@@ -185,6 +263,7 @@
 			)
 			
 			refreshListView batchRenderList_lv
+			updateEnabledViews batchrenderwizard_rollout
 		)
 		
 		on selectAllRenderList_button pressed do
@@ -275,6 +354,8 @@
 				tempList = copy additionalFileLocations_mlb.items #noMap
 			appendIfUnique tempList (newAdditionalFileLocation_edittext.text)
 			additionalFileLocations_mlb.items = tempList
+			
+			newAdditionalFileLocation_edittext.text = ""
 		)
 
 		on removeAdditionalFileLocation_btn pressed do
@@ -307,6 +388,10 @@
 			(
 				batchRenderName_edittext.text = ""
 				batchRenderName_edittext.enabled = false
+				
+				sceneState_drp.selection = 1
+				camera_drp.selection = 1
+				
 				overridePresets_chk.enabled = false
 
 				overridePresets_chk.checked = false
@@ -337,16 +422,45 @@
 			)
 			else if(batchRenderList_lv.SelectedItems.count >= 1) then
 			(
+				firstSelectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+
 				if( batchRenderList_lv.SelectedItems.count == 1 ) then
 				(
-					batchRenderName_edittext.text = batchRenderList_lv.SelectedItems.Item[0].text
+					batchRenderName_edittext.text = firstSelectedRender.name
 					batchRenderName_edittext.enabled = true
+					
+					if applySelectedRenderView_chk.checked then
+					(
+						sceneStateMgr.restore firstSelectedRender.sceneStateName (sceneStateMgr.GetParts firstSelectedRender.sceneStateName)
+						viewport.setCamera firstSelectedRender.camera
+					)
 				)
 				else
 				(
 					batchRenderName_edittext.text = "(multiple items selected)"
 					batchRenderName_edittext.enabled = false
 				)
+
+				sharedSceneState = true
+				sharedCamera = true
+				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+				(
+					currentRenderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+					if( firstSelectedRender.sceneStateName != currentRenderView.sceneStateName ) then
+						sharedSceneState = false
+					if( firstSelectedRender.camera != currentRenderView.camera ) then
+						sharedCamera = false
+				)
+				
+				if( sharedCamera ) then
+					sceneState_drp.selection = finditem sceneState_drp.items firstSelectedRender.sceneStateName
+				else
+					sceneState_drp.selection = 0
+
+				if( sharedCamera ) then
+					camera_drp.selection = finditem camera_drp.items firstSelectedRender.camera.name
+				else
+					camera_drp.selection = 0
 				
 				overridePresets_chk.enabled = true
 				
@@ -389,7 +503,6 @@
 					sharedStartFrame = true
 					sharedEndFrame = true
 
-					firstSelectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
 					
 					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 					(
@@ -410,6 +523,28 @@
 					)
 					else
 						width_spn.Indeterminate = true
+					
+					if( sharedHeight ) then
+					(
+						height_spn.value = firstSelectedRender.height
+					)
+					else
+						height_spn.Indeterminate = true
+
+					if( sharedStartFrame ) then
+					(
+						startFrame_spn.value = firstSelectedRender.startFrame
+					)
+					else
+						startFrame_spn.Indeterminate = true
+
+					if( sharedEndFrame ) then
+					(
+						endFrame_spn.value = firstSelectedRender.endFrame
+					)
+					else
+						endFrame_spn.Indeterminate = true
+					
 				)
 				else
 				(
@@ -443,6 +578,13 @@
 		on batchRenderList_lv ItemChecked e do (
 			if((e.item.index + 1) <= batchRenderMgr.numViews) then
 				(batchRenderMgr.getView (e.item.index + 1)).enabled = e.item.checked
+
+			updateEnabledViews batchrenderwizard_rollout
+		)
+		
+		on nameConvention_edittext changed newText do
+		(
+			fileProperties.addProperty #custom "RenderViewNamingConvention" newText
 		)
 		
 		on batchRenderName_edittext changed newText do
@@ -461,7 +603,33 @@
 				batchRenderRenameError_label.text = "Scene State with the same name already exists"
 			)
 		)
-
+		
+		on sceneState_drp selected newSelectionIndex do
+		(
+			if( (stricmp sceneState_drp.selected "") != 0  ) then
+			(
+				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+				(
+					(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).sceneStateName = sceneState_drp.items[newSelectionIndex]
+				)
+				
+				updateSelectedItemDisplays batchrenderwizard_rollout
+			)
+		)
+		
+		on camera_drp selected newSelectionIndex do
+		(
+			if( (stricmp camera_drp.selected "") != 0 ) then
+			(
+				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+				(
+					(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).camera = getNodeByName camera_drp.items[newSelectionIndex]
+				)
+				
+				updateSelectedItemDisplays batchrenderwizard_rollout
+			)
+		)
+		
 		on overridePresets_chk changed newChecked do
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
@@ -533,7 +701,7 @@
 			oldHeight = batchRenderList_lv.height
 			
 			batchRenderList_lv.width = batchrenderwizard_rollout.width - 28
-			batchRenderList_lv.height = batchrenderwizard_rollout.height - (800 - 250)
+			batchRenderList_lv.height = batchrenderwizard_rollout.height - (870 - 250)
 
 			heightDelta = batchRenderList_lv.height - oldHeight
 			
@@ -554,4 +722,4 @@
 	)
 
 	try( DestroyDialog batchrenderwizard_rollout ) catch ()
-	wizardDialog = CreateDialog batchrenderwizard_rollout 800 800 style:#(#style_titlebar, #style_sysmenu, #style_resizing)
+	wizardDialog = CreateDialog batchrenderwizard_rollout 800 870 style:#(#style_titlebar, #style_sysmenu, #style_resizing)
