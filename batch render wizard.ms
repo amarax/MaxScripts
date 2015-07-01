@@ -63,7 +63,10 @@
 				if( mainRollout.batchRenderList_lv.SelectedItems.count == 1 )then
 					listItem.text = renderView.name
 
-				listItem.subItems.Item[1].text = renderView.camera.name
+				renderViewCameraName = ""
+				if renderView.camera != undefined then
+					renderViewCameraName = renderView.camera.name
+				listItem.subItems.Item[1].text = renderViewCameraName
 				listItem.subItems.Item[2].text = renderView.sceneStateName
 				
 				renderViewRes = "Default"
@@ -431,8 +434,11 @@
 					
 					if applySelectedRenderView_chk.checked then
 					(
-						sceneStateMgr.restore firstSelectedRender.sceneStateName (sceneStateMgr.GetParts firstSelectedRender.sceneStateName)
-						viewport.setCamera firstSelectedRender.camera
+						if (sceneStateMgr.GetParts firstSelectedRender.sceneStateName) == true then
+							sceneStateMgr.restore firstSelectedRender.sceneStateName (sceneStateMgr.GetParts firstSelectedRender.sceneStateName)
+						
+						if (firstSelectedRender.camera != undefined ) then
+							viewport.setCamera firstSelectedRender.camera
 					)
 				)
 				else
@@ -453,12 +459,16 @@
 				)
 				
 				if( sharedCamera ) then
+				(
 					sceneState_drp.selection = finditem sceneState_drp.items firstSelectedRender.sceneStateName
+				)
 				else
 					sceneState_drp.selection = 0
 
-				if( sharedCamera ) then
+				if( sharedCamera and firstSelectedRender.camera != undefined) then
+				(
 					camera_drp.selection = finditem camera_drp.items firstSelectedRender.camera.name
+				)
 				else
 					camera_drp.selection = 0
 				
@@ -608,12 +618,19 @@
 		(
 			if( (stricmp sceneState_drp.selected "") != 0  ) then
 			(
-				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+				if (sceneStateMgr.findSceneState sceneState_drp.items[newSelectionIndex]) > 0 then
 				(
-					(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).sceneStateName = sceneState_drp.items[newSelectionIndex]
+					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+					(
+						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).sceneStateName = sceneState_drp.items[newSelectionIndex]
+					)
+					
+					updateSelectedItemDisplays batchrenderwizard_rollout
 				)
-				
-				updateSelectedItemDisplays batchrenderwizard_rollout
+				else
+				(
+					print "Cannot find Scene State: " + sceneState_drp.items[newSelectionIndex]
+				)
 			)
 		)
 		
@@ -621,12 +638,20 @@
 		(
 			if( (stricmp camera_drp.selected "") != 0 ) then
 			(
-				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+				selectedCamera = getNodeByName camera_drp.items[newSelectionIndex]
+				if selectedCamera != undefined then
 				(
-					(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).camera = getNodeByName camera_drp.items[newSelectionIndex]
-				)
+					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
+					(
+						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).camera = selectedCamera
+					)
 				
-				updateSelectedItemDisplays batchrenderwizard_rollout
+					updateSelectedItemDisplays batchrenderwizard_rollout
+				)
+				else
+				(
+					print "Cannot find Camera: " + camera_drp.items[newSelectionIndex]
+				)
 			)
 		)
 		
