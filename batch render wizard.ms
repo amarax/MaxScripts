@@ -1,3 +1,75 @@
+	-- Sorter copied from http://forums.cgsociety.org/showpost.php?p=6001914&postcount=349
+	if gListViewItemComparerAssembly == undefined then
+    (
+    	global gListViewItemComparerAssembly
+    )
+    
+    fn gNewListViewItemComparer forceRecompile:false =
+    (
+    	if (forceRecompile or 
+    		(classof gListViewItemComparerAssembly) != dotNetObject or 
+    		((gListViewItemComparerAssembly.GetType()).ToString()) != "System.Reflection.Assembly") do
+    	(
+    		sb =  "using System;\n"
+    		sb += "using System.Windows.Forms;\n"
+    		sb += "using System.Collections;\n"
+    		sb += "class gpgxListViewItemComparer : IComparer\n"
+    		sb += "{\n"
+    		sb += "	public int column;\n"
+    		sb += "	public bool reversed;\n"
+    		sb += "	public gpgxListViewItemComparer()\n"
+    		sb += "	{\n"
+    		sb += "		column = 0;\n"
+    		sb += "		reversed = false;\n"
+    		sb += "	}\n"
+    		sb += "	public gpgxListViewItemComparer(int col, bool rev)\n"
+    		sb += "	{\n"
+    		sb += "		column = col;\n"
+    		sb += "		reversed = rev;\n"
+    		sb += "	}\n"
+    		sb += "	public int Compare(object x, object y)\n"
+    		sb += "	{\n"
+    		sb += "		int ret = 0;\n"
+    		sb += "		ListViewItem lvx = (ListViewItem)x;\n"
+    		sb += "		ListViewItem lvy = (ListViewItem)y;\n"
+    		sb += "		if (column >= 0 && column < lvx.SubItems.Count && column < lvy.SubItems.Count)\n"
+    		sb += "			ret = String.Compare(lvx.SubItems[column].Text, lvy.SubItems[column].Text);\n"
+    		sb += "		return reversed ? -ret : ret;\n"
+    		sb += "	}\n"
+    		sb += "}\n"
+    
+    		csharpProvider = dotnetobject "Microsoft.CSharp.CSharpCodeProvider"
+    		compilerParams = dotnetobject "System.CodeDom.Compiler.CompilerParameters"
+    		
+    		-- Need to add referenced assemblies that the code snippet is 'using'
+    		compilerParams.ReferencedAssemblies.Add("System.dll");
+    		compilerParams.ReferencedAssemblies.Add("System.Windows.Forms.dll");
+    		
+    		compilerParams.GenerateInMemory = true
+    		compilerResults = csharpProvider.CompileAssemblyFromSource compilerParams #(sb)
+    		
+    		if (compilerResults.Errors.Count > 0 ) then
+    		(
+    			errs = stringstream ""
+    			for i = 0 to (compilerResults.Errors.Count-1) do
+    			(
+    				err = compilerResults.Errors.Item[i]
+    				format "Error:% Line:% Column:% %\n" err.ErrorNumber err.Line \											  
+    													 err.Column err.ErrorText to:errs 
+    			)
+    			MessageBox (errs as string) title: "Errors encountered while compiling C# code"
+    			format "%\n" errs
+    			gListViewItemComparerAssembly = undefined
+    			return undefined
+    		)
+    		else
+    		(
+    			gListViewItemComparerAssembly = compilerResults.CompiledAssembly
+    		)
+    	)
+    	gListViewItemComparerAssembly.CreateInstance "gpgxListViewItemComparer"
+    )
+	
 	rollout batchrenderwizard_rollout "Batch Render Wizard"
 	(
 		fn refreshListView lv =
@@ -49,6 +121,8 @@
 			)
 			lv.CheckBoxes = true
 			lv.HideSelection = false
+			
+			lv.ListViewItemSorter = gNewListViewItemComparer()
 		)
 
 		fn updateSelectedItemDisplays mainRollout =
@@ -383,6 +457,16 @@
 		)
 		
 		on batchRenderList_lv ColumnClick e do (
+    		if (batchRenderList_lv.ListViewItemSorter.Column != e.Column) then
+    		(
+    			batchRenderList_lv.ListViewItemSorter.Column = e.Column
+    			batchRenderList_lv.ListViewItemSorter.Reversed = false
+    		)
+    		else
+    		(
+    			batchRenderList_lv.ListViewItemSorter.Reversed = (not batchRenderList_lv.ListViewItemSorter.Reversed)
+    		)
+    		batchRenderList_lv.Sort()
 		)
 		
 		on batchRenderList_lv ItemSelectionChanged e do (
@@ -434,7 +518,7 @@
 					
 					if applySelectedRenderView_chk.checked then
 					(
-						if (sceneStateMgr.GetParts firstSelectedRender.sceneStateName) == true then
+						if (sceneStateMgr.FindSceneState firstSelectedRender.sceneStateName) > 0 then
 							sceneStateMgr.restore firstSelectedRender.sceneStateName (sceneStateMgr.GetParts firstSelectedRender.sceneStateName)
 						
 						if (firstSelectedRender.camera != undefined ) then
@@ -625,6 +709,9 @@
 						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).sceneStateName = sceneState_drp.items[newSelectionIndex]
 					)
 					
+					if applySelectedRenderView_chk.checked then
+						sceneStateMgr.restore sceneState_drp.items[newSelectionIndex] (sceneStateMgr.GetParts sceneState_drp.items[newSelectionIndex])
+					
 					updateSelectedItemDisplays batchrenderwizard_rollout
 				)
 				else
@@ -645,6 +732,9 @@
 					(
 						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).camera = selectedCamera
 					)
+					
+					if applySelectedRenderView_chk.checked then
+						viewport.setCamera selectedCamera
 				
 					updateSelectedItemDisplays batchrenderwizard_rollout
 				)
