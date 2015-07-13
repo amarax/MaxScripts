@@ -122,44 +122,54 @@
 			lv.CheckBoxes = true
 			lv.HideSelection = false
 			
-			lv.ListViewItemSorter = gNewListViewItemComparer()
+			--lv.ListViewItemSorter = gNewListViewItemComparer()
 		)
 
 		fn updateSelectedItemDisplays mainRollout =
 		(
-			redrawIndexStart = mainRollout.batchRenderList_lv.Items.count
-			redrawIndexEnd = -1
+			--redrawIndexStart = mainRollout.batchRenderList_lv.Items.count
+			--redrawIndexEnd = -1
+			redrawIndexStart=0
+			redrawIndexEnd = mainRollout.batchRenderList_lv.Items.count - 1
 			for s = 0 to mainRollout.batchRenderList_lv.SelectedItems.count - 1 do
 			(
 				listItem = mainRollout.batchRenderList_lv.SelectedItems.Item[s]
-				renderView = batchRenderMgr.getView (listItem.Index +1)
-				
-				if( mainRollout.batchRenderList_lv.SelectedItems.count == 1 )then
-					listItem.text = renderView.name
-
-				renderViewCameraName = ""
-				if renderView.camera != undefined then
-					renderViewCameraName = renderView.camera.name
-				listItem.subItems.Item[1].text = renderViewCameraName
-				listItem.subItems.Item[2].text = renderView.sceneStateName
-				
-				renderViewRes = "Default"
-				renderViewRange = "Default"
-				if( renderView.overridePreset ) then
+				if ( batchRenderMgr.FindView listItem.text ) > 0 then
 				(
-					renderViewRes = (renderView.width as string) + "x" + (renderView.height as string)
-					renderViewRange = (int(renderView.startFrame) as string) + "-" + (int(renderView.endFrame) as string)
+					--renderView = batchRenderMgr.getView (listItem.Index +1)
+					renderView = batchRenderMgr.getView (batchRenderMgr.FindView listItem.text)
+					
+					if( mainRollout.batchRenderList_lv.SelectedItems.count == 1 ) then
+						listItem.text = renderView.name
+
+					renderViewCameraName = ""
+					if renderView.camera != undefined then
+						renderViewCameraName = renderView.camera.name
+					listItem.subItems.Item[1].text = renderViewCameraName
+					listItem.subItems.Item[2].text = renderView.sceneStateName
+					
+					renderViewRes = "Default"
+					renderViewRange = "Default"
+					if( renderView.overridePreset ) then
+					(
+						renderViewRes = (renderView.width as string) + "x" + (renderView.height as string)
+						renderViewRange = (int(renderView.startFrame) as string) + "-" + (int(renderView.endFrame) as string)
+					)
+					listItem.subItems.Item[3].text = renderViewRes
+					listItem.subItems.Item[4].text = renderViewRange
+					
+					listItem.checked = renderView.enabled
+
+					if( redrawIndexStart > listItem.index ) then
+						redrawIndexStart = listItem.index
+
+					if( redrawIndexEnd < listItem.index ) then
+						redrawIndexEnd = listItem.index
 				)
-				listItem.subItems.Item[3].text = renderViewRes
-				listItem.subItems.Item[4].text = renderViewRange
-				
-				listItem.checked = renderView.enabled 
-
-				if( redrawIndexStart > mainRollout.batchRenderList_lv.SelectedItems.Item[s].index ) then
-					redrawIndexStart = mainRollout.batchRenderList_lv.SelectedItems.Item[s].index
-
-				if( redrawIndexEnd < mainRollout.batchRenderList_lv.SelectedItems.Item[s].index ) then
-					redrawIndexEnd = mainRollout.batchRenderList_lv.SelectedItems.Item[s].index
+				else
+				(
+					print ("Cannot find render view " + listItem.text)
+				)
 			)
 			
 			mainRollout.batchRenderList_lv.RedrawItems redrawIndexStart redrawIndexEnd false
@@ -177,6 +187,31 @@
 			mainRollout.startBatchRenderList_button.caption = "Start Batch Render (" + enabledViews as string + ")"
 		)
 
+		fn updateSavedAdditionalLocations locationListBox =
+		(
+			locationsString = ""
+			separator = ";"
+			for i in locationListBox.items do
+			(
+				locationsString = locationsString + i + separator
+			)
+			
+			fileProperties.addProperty #custom "BatchRenderAdditionalCopyLocations" locationsString
+		)
+		
+		fn loadSavedAdditionalLocations locationListBox =
+		(
+			separator = ";"
+
+			additionalLocationsPropertyIndex = fileProperties.findProperty #custom "BatchRenderAdditionalCopyLocations"
+			if ( additionalLocationsPropertyIndex > 0 ) then
+			(
+				stringToParse = fileProperties.getPropertyValue #custom additionalLocationsPropertyIndex
+				additionalLocations = filterString stringToParse separator
+				locationListBox.items = additionalLocations
+			)
+		)
+				
 		multilistbox sceneStateList_mlb "Scene State List" width:200 height:10 across:2 align:#left
 		multilistbox cameraList_mlb "Camera List" width:200 height:10 align:#left
 		
@@ -269,6 +304,8 @@
 			nameConvention_edittext.text = renderNamingConvention
 
 			updateEnabledViews batchrenderwizard_rollout
+			
+			loadSavedAdditionalLocations additionalFileLocations_mlb
 		)
 		
 		on generatePermutations_button pressed do
@@ -370,14 +407,61 @@
 					if( firstEnabledViewIndex == -1) then
 						firstEnabledViewIndex = v
 				
-					-- Make sure all files exist first
-					if doesFileExist renderView.outputFilename == true then
+					startFrame = currentTime
+					endFrame = currentTime
+					multipleFrames = false
+					
+					if( renderView.overridePreset == true ) then
 					(
-						append outputFiles ("\"" + renderView.outputFilename + "\"")
+						startFrame = renderView.startFrame
+						endFrame = renderView.endFrame
+						multipleFrames = true
 					)
 					else
 					(
-						
+						if( rendTimeType == 2) then
+						(
+							startFrame = animationRange.start
+							endFrame = animationRange.end
+							multipleFrames = true
+						)
+						else if( rendTimeType == 3 ) then
+						(
+							startFrame = rendStart
+							endFrame = rendEnd
+							multipleFrames = true
+						)
+					)
+					
+					if ( not multipleFrames ) then
+					(
+						-- Make sure all files exist first
+						if doesFileExist renderView.outputFilename == true then
+						(
+							append outputFiles ("\"" + renderView.outputFilename + "\"")
+						)
+					)
+					else
+					(
+						for f = (startFrame as integer)/TicksPerFrame to (endFrame as integer)/TicksPerFrame do
+						(
+							
+							expectedLength = 4
+							frameNumber = f as string
+							
+							while frameNumber.count < expectedLength do
+							(
+								frameNumber = "0" + frameNumber
+							)
+
+							filenameToCopy = (getFilenamePath renderView.outputFilename) + (getFilenameFile renderView.outputFilename) + frameNumber + (getFilenameType renderView.outputFilename)
+							
+							-- Make sure all files exist first
+							if doesFileExist filenameToCopy == true then
+							(
+								append outputFiles ("\"" + filenameToCopy + "\"")
+							)
+						)
 					)
 				)
 			)
@@ -433,6 +517,8 @@
 			additionalFileLocations_mlb.items = tempList
 			
 			newAdditionalFileLocation_edittext.text = ""
+			
+			updateSavedAdditionalLocations additionalFileLocations_mlb
 		)
 
 		on removeAdditionalFileLocation_btn pressed do
@@ -457,16 +543,34 @@
 		)
 		
 		on batchRenderList_lv ColumnClick e do (
-    		if (batchRenderList_lv.ListViewItemSorter.Column != e.Column) then
+			newSorter = false
+			if( batchRenderList_lv.ListViewItemSorter == undefined ) then
+			(
+				batchRenderList_lv.ListViewItemSorter = gNewListViewItemComparer()
+				batchRenderList_lv.ListViewItemSorter.Reversed = false
+
+				newSorter = true
+			)
+			
+    		if (batchRenderList_lv.ListViewItemSorter.Column != e.Column or newSorter) then
     		(
     			batchRenderList_lv.ListViewItemSorter.Column = e.Column
     			batchRenderList_lv.ListViewItemSorter.Reversed = false
+				batchRenderList_lv.Sort()
     		)
     		else
     		(
-    			batchRenderList_lv.ListViewItemSorter.Reversed = (not batchRenderList_lv.ListViewItemSorter.Reversed)
+				if( batchRenderList_lv.ListViewItemSorter.Reversed == false ) then
+				(
+					batchRenderList_lv.ListViewItemSorter.Reversed = true
+					batchRenderList_lv.Sort()
+				)
+				else
+				(
+					batchRenderList_lv.ListViewItemSorter = undefined
+					refreshListView batchRenderList_lv
+				)
     		)
-    		batchRenderList_lv.Sort()
 		)
 		
 		on batchRenderList_lv ItemSelectionChanged e do (
@@ -509,7 +613,8 @@
 			)
 			else if(batchRenderList_lv.SelectedItems.count >= 1) then
 			(
-				firstSelectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+				--firstSelectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+				firstSelectedRender = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[0].text)
 
 				if( batchRenderList_lv.SelectedItems.count == 1 ) then
 				(
@@ -535,7 +640,8 @@
 				sharedCamera = true
 				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 				(
-					currentRenderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+					--currentRenderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+					currentRenderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 					if( firstSelectedRender.sceneStateName != currentRenderView.sceneStateName ) then
 						sharedSceneState = false
 					if( firstSelectedRender.camera != currentRenderView.camera ) then
@@ -561,7 +667,8 @@
 				currentTriState = -1	-- -1 Represents uninitialized
 				for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 				(
-					selectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+					--selectedRender = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+					selectedRender = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 					if(currentTriState == -1) then
 					(
 						if(selectedRender.overridePreset) then
@@ -600,7 +707,8 @@
 					
 					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 					(
-						currentRenderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+						--currentRenderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+						currentRenderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 						if( firstSelectedRender.width != currentRenderView.width or currentRenderView.overridePreset == false ) then
 							sharedWidth = false
 						if( firstSelectedRender.height != currentRenderView.height or currentRenderView.overridePreset == false ) then
@@ -670,9 +778,11 @@
 		)
 		
 		on batchRenderList_lv ItemChecked e do (
-			if((e.item.index + 1) <= batchRenderMgr.numViews) then
-				(batchRenderMgr.getView (e.item.index + 1)).enabled = e.item.checked
+			--if((e.item.index + 1) <= batchRenderMgr.numViews) then
+				--(batchRenderMgr.getView (e.item.index + 1)).enabled = e.item.checked
 
+			(batchRenderMgr.getView (batchRenderMgr.findView e.item.text)).enabled = e.item.checked
+			
 			updateEnabledViews batchrenderwizard_rollout
 		)
 		
@@ -686,15 +796,17 @@
 			batchRenderRenameError_label.text = ""
 			if (batchRenderMgr.FindView newText == 0) then
 			(
-				renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+				--renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[0].index + 1)
+				renderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[0].text)
 				renderView.name = newText
+				batchRenderList_lv.SelectedItems.Item[0].text = newText
 				renderView.outputFilename = substituteString renderView.outputFilename (getFilenameFile renderView.outputFilename) renderView.name
 				
-				updateSelectedItemDisplays batchrenderwizard_rollout
+				--updateSelectedItemDisplays batchrenderwizard_rollout
 			)
 			else if( batchRenderMgr.FindView newText != (batchRenderList_lv.SelectedItems.Item[0].index + 1) ) then
 			(
-				batchRenderRenameError_label.text = "Scene State with the same name already exists"
+				batchRenderRenameError_label.text = "Render View with the same name already exists"
 			)
 		)
 		
@@ -706,7 +818,7 @@
 				(
 					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 					(
-						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).sceneStateName = sceneState_drp.items[newSelectionIndex]
+						(batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)).sceneStateName = sceneState_drp.items[newSelectionIndex]
 					)
 					
 					if applySelectedRenderView_chk.checked then
@@ -730,7 +842,7 @@
 				(
 					for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 					(
-						(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).camera = selectedCamera
+						(batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)).camera = selectedCamera
 					)
 					
 					if applySelectedRenderView_chk.checked then
@@ -749,7 +861,7 @@
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 			(
-				(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).overridePreset = newChecked
+				(batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)).overridePreset = newChecked
 			)
 			
 			width_spn.enabled = newChecked
@@ -764,7 +876,7 @@
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 			(
-				renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+				renderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 				renderView.overridePreset = true
 				renderView.width = newValue
 			)
@@ -777,7 +889,7 @@
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 			(
-				(batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)).height = newValue
+				(batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)).height = newValue
 			)
 			updateSelectedItemDisplays batchrenderwizard_rollout
 		)
@@ -786,7 +898,7 @@
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 			(
-				renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+				renderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 				renderView.startFrame = newValue
 				if( renderView.endFrame < newValue ) then
 					renderView.endFrame = newValue
@@ -798,7 +910,7 @@
 		(
 			for s = 0 to batchRenderList_lv.SelectedItems.count - 1 do
 			(
-				renderView = batchRenderMgr.GetView (batchRenderList_lv.SelectedItems.Item[s].index + 1)
+				renderView = batchRenderMgr.GetView (batchRenderMgr.FindView batchRenderList_lv.SelectedItems.Item[s].text)
 				renderView.endFrame = newValue
 				if( renderView.startFrame > newValue ) then
 					renderView.startFrame = newValue
