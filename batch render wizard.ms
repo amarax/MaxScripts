@@ -72,6 +72,32 @@
 	
 	rollout batchrenderwizard_rollout "Batch Render Wizard"
 	(
+		fn arrayToFileProperty sourceStringArray targetFilePropertyName =
+		(
+			propertyString = ""
+			separator = ";"
+			for i in sourceStringArray do
+			(
+				propertyString = propertyString + i + separator
+			)
+			
+			fileProperties.addProperty #custom targetFilePropertyName propertyString
+		)
+		
+		fn filePropertyToArray sourceFilePropertyName =
+		(
+			separator = ";"
+			
+			returnItems = #()
+			filePropertyIndex = fileProperties.findProperty #custom sourceFilePropertyName
+			if ( filePropertyIndex  > 0 ) then
+			(
+				returnItems = filterString (fileProperties.getPropertyValue #custom filePropertyIndex) separator
+			)
+			
+			return returnItems
+		)
+		
 		fn refreshListView lv =
 		(
 			theRange = #()
@@ -189,29 +215,37 @@
 
 		fn updateSavedAdditionalLocations locationListBox =
 		(
-			locationsString = ""
-			separator = ";"
-			for i in locationListBox.items do
-			(
-				locationsString = locationsString + i + separator
-			)
-			
-			fileProperties.addProperty #custom "BatchRenderAdditionalCopyLocations" locationsString
+			arrayToFileProperty (arrayToString locationListBox.items) "BatchRenderAdditionalCopyLocations" 
 		)
 		
 		fn loadSavedAdditionalLocations locationListBox =
 		(
-			separator = ";"
-
-			additionalLocationsPropertyIndex = fileProperties.findProperty #custom "BatchRenderAdditionalCopyLocations"
-			if ( additionalLocationsPropertyIndex > 0 ) then
-			(
-				stringToParse = fileProperties.getPropertyValue #custom additionalLocationsPropertyIndex
-				additionalLocations = filterString stringToParse separator
-				locationListBox.items = additionalLocations
-			)
+			locationListBox.items = filePropertyToArray "BatchRenderAdditionalCopyLocations"
 		)
 				
+		fn addRenderViewLocationHistory historyCmbControl newLocation =
+		(
+			historyItems = filePropertyToArray "RenderViewLocationHistory"
+			appendIfUnique historyItems newLocation
+			arrayToFileProperty historyItems "RenderViewLocationHistory"
+
+			historyCmbControl.items = historyItems
+			historyCmbControl.selection = findItem historyItems newLocation
+		)
+		
+		fn removeRenderViewLocationFromHistory historyCmbControl locationToDelete =
+		(
+			historyItems = filePropertyToArray "RenderViewLocationHistory"
+			locationToDeleteIndex = findItem historyItems locationToDelete
+			if( locationToDeleteIndex > 0 ) then
+			(
+				deleteItem historyItems locationToDeleteIndex
+				arrayToFileProperty historyItems "RenderViewLocationHistory"
+			)
+
+			historyCmbControl.items = historyItems
+		)
+		
 		multilistbox sceneStateList_mlb "Scene State List" width:200 height:10 across:2 align:#left
 		multilistbox cameraList_mlb "Camera List" width:200 height:10 align:#left
 		
@@ -247,10 +281,13 @@
 		edittext fileLocation_edittext "Render Output Location" text:(maxFilePath + "RENDERS\\") width:520 across:4 offset:[0,0]
 		button fileLocation_browse "..." width:30 pos:[540,fileLocation_edittext.pos.y]
 		dropdownlist outputFileType_drp items:#(".png",".jpg") width:50 align:#left pos:[580,fileLocation_edittext.pos.y]
-
+		
 		button startBatchRenderList_button "Start Batch Render" width:150 height:150 align:#right
 		
-		edittext newAdditionalFileLocation_edittext "New Additional Location" width:520 offset:[0,-120]
+		dropdownlist fileLocationHistory_cmb width:405 offset:[118,-130] across:2
+		button removeFromFileLocationHistory_btn "-" width:20 pos:[540,fileLocationHistory_cmb.pos.y]
+
+		edittext newAdditionalFileLocation_edittext "New Additional Location" width:520 offset:[0,10]
 		button browseAdditionalFileLocation_btn "..." width:30 pos:[540,newAdditionalFileLocation_edittext.pos.y]
 		button addAdditionalFileLocation_btn "+" width:20 pos:[580,newAdditionalFileLocation_edittext.pos.y] tooltip:"Add new output location"
 
@@ -290,7 +327,6 @@
 			if batchRenderMgr.numViews >= 1 then
 			(
 				fileLocation_edittext.text = getFilenamePath (batchRenderMgr.getView 1).outputFilename
-				
 			)
 			
 			renderViewNamingConventionIndex = fileProperties.findProperty #custom "RenderViewNamingConvention"
@@ -304,10 +340,13 @@
 			nameConvention_edittext.text = renderNamingConvention
 
 			updateEnabledViews batchrenderwizard_rollout
-			
+
+			addRenderViewLocationHistory fileLocationHistory_cmb fileLocation_edittext.text
+
 			loadSavedAdditionalLocations additionalFileLocations_mlb
 		)
 		
+
 		on generatePermutations_button pressed do
 		(
 			for c in cameraList_mlb.selection do
@@ -391,6 +430,8 @@
 		
 		on startBatchRenderList_button pressed do
 		(
+			addRenderViewLocationHistory fileLocationHistory_cmb fileLocation_edittext.text
+
 			batchRenderMgr.Render()
 			
 			-- Copy to destination folders
@@ -497,6 +538,18 @@
 					renderView.outputFilename = fileLocation_edittext.text + "\\" + renderView.name + outputFileType_drp.selected 
 				)
 			)
+		)
+		
+		on fileLocationHistory_cmb selected newItemIndex do
+		(
+			if (fileLocationHistory_cmb.selected != undefined ) then
+				fileLocation_edittext.text = fileLocationHistory_cmb.selected
+		)
+		
+		on removeFromFileLocationHistory_btn pressed do
+		(
+			if( fileLocationHistory_cmb.selection > 0 ) then
+				removeRenderViewLocationFromHistory fileLocationHistory_cmb fileLocationHistory_cmb.selected
 		)
 		
 		on browseAdditionalFileLocation_btn pressed do
@@ -920,15 +973,19 @@
 		
 		on batchrenderwizard_rollout resized newSize do
 		(
-			if( newSize.x < 800 ) then
-				batchrenderwizard_rollout.width = 800
-			if( newSize.y < 400 ) then
-				batchrenderwizard_rollout.height = 400
+			minimumWidth = 800
+			minimumHeight = 400
+			standardHeight = 890
+			
+			if( newSize.x < minimumWidth ) then
+				batchrenderwizard_rollout.width = minimumWidth
+			if( newSize.y < minimumHeight ) then
+				batchrenderwizard_rollout.height = minimumHeight
 			
 			oldHeight = batchRenderList_lv.height
 			
 			batchRenderList_lv.width = batchrenderwizard_rollout.width - 28
-			batchRenderList_lv.height = batchrenderwizard_rollout.height - (870 - 250)
+			batchRenderList_lv.height = batchrenderwizard_rollout.height - (standardHeight - 250)
 
 			heightDelta = batchRenderList_lv.height - oldHeight
 			
@@ -949,4 +1006,4 @@
 	)
 
 	try( DestroyDialog batchrenderwizard_rollout ) catch ()
-	wizardDialog = CreateDialog batchrenderwizard_rollout 800 870 style:#(#style_titlebar, #style_sysmenu, #style_resizing)
+	wizardDialog = CreateDialog batchrenderwizard_rollout 800 890 style:#(#style_titlebar, #style_sysmenu, #style_resizing)
