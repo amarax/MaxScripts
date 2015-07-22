@@ -401,7 +401,8 @@
 		(
 			for s = 1 to batchRenderList_lv.SelectedItems.count do
 			(
-				batchRenderMgr.DuplicateView (batchRenderMgr.findView batchRenderList_lv.SelectedItems.item[s-1].text)
+				newRenderView = batchRenderMgr.DuplicateView (batchRenderMgr.findView batchRenderList_lv.SelectedItems.item[s-1].text)
+				newRenderView.outputFilename = fileLocation_edittext.text + "\\" + newRenderView.name + outputFileType_drp.selected
 			)
 			
 			refreshListView batchRenderList_lv
